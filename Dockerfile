@@ -1,9 +1,12 @@
 # syntax=docker/dockerfile:1
 
 # ==================== Chef Base ====================
-# Pin Rust version for reproducible builds
-FROM rust:1.98-trixie AS chef
+# Track the latest stable Rust 1.x release
+FROM rust:1-alpine AS chef
 WORKDIR /build
+
+# Build toolchain for native deps (aws-lc-sys needs a C compiler, cmake and perl)
+RUN apk add --no-cache musl-dev build-base cmake perl
 
 # Install cargo-chef for proper dependency caching
 # This layer is cached as long as the base image doesn't change
@@ -35,20 +38,16 @@ RUN cargo build --release --locked \
     && strip target/release/axumbackend
 
 # ==================== Production Stage ====================
-FROM debian:trixie-slim AS production
+FROM alpine:latest AS production
 
 # Install only the required runtime dependencies:
 # - ca-certificates: for HTTPS requests (reqwest)
 # - curl: for the healthcheck
-# libpq5 is not needed since SeaORM uses rustls (pure Rust)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+# libpq is not needed since SeaORM uses rustls (pure Rust)
+RUN apk add --no-cache ca-certificates curl
 
 # Create a non-root user for security
-RUN groupadd -g 1000 app && useradd -u 1000 -g app -s /bin/sh -m -d /home/app app
+RUN addgroup -g 1000 app && adduser -u 1000 -G app -s /bin/sh -D -h /home/app app
 
 # Copy the stripped binary from the builder
 COPY --from=builder /build/target/release/axumbackend /usr/local/bin/axumbackend
