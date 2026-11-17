@@ -1,6 +1,6 @@
 use super::{LikePostIdParam, PostIdParam};
 use crate::dto::post::PostPaginationQuery;
-use crate::http::auth::{AuthUser, is_super_admin};
+use crate::http::auth::{AuthUser, OptionalAuthUser, is_super_admin};
 use crate::http::client_ip::RequestClient;
 use crate::http::error::AppError;
 use crate::http::extract::VQuery;
@@ -59,23 +59,19 @@ fn like_err(message: &'static str) -> impl FnOnce(services::post_like::PostLikeE
     }
 }
 
+/// Records a view for logged-in users and anonymous visitors alike (a
+/// missing or invalid token counts as anonymous instead of 401).
 pub async fn record_view(
     State(pool): State<DbPool>,
-    auth_user: AuthUser,
+    OptionalAuthUser(auth_user): OptionalAuthUser,
     RequestClient(client): RequestClient,
     PostIdParam(post_id): PostIdParam,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
-    // echobackend stores `c.RealIP()` (trusted-proxy aware), never the raw
+    // `client` carries `c.RealIP()` (trusted-proxy aware), never the raw
     // X-Forwarded-For header.
-    services::post_view::record_view(
-        &pool,
-        post_id,
-        Some(auth_user.id),
-        client.ip_address,
-        client.user_agent,
-    )
-    .await
-    .map_err(view_err("Failed to record view"))?;
+    services::post_view::record_view(&pool, post_id, auth_user.map(|user| user.id), client)
+        .await
+        .map_err(view_err("Failed to record view"))?;
 
     Ok(Json(ApiResponse::message("View recorded successfully")))
 }

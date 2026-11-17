@@ -7,11 +7,15 @@ use crate::models::post_view::{
 use crate::services::pagination::paginate;
 use chrono::{Datelike, NaiveDate, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
-    FromQueryResult, QueryFilter, QueryOrder, Set, Statement,
+    ColumnTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait, FromQueryResult, QueryFilter,
+    QueryOrder, Statement,
 };
 use std::collections::HashMap;
 use uuid::Uuid;
+
+mod record;
+
+pub use record::record_view;
 
 #[derive(Debug)]
 pub enum PostViewError {
@@ -90,61 +94,6 @@ async fn has_user_viewed(
         .is_some())
 }
 
-/// TTL of echobackend's `post_view:<postID>:<userID>` "already viewed" marker.
-const VIEWED_MARKER_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
-
-/// Records a view. Mirrors echobackend `RecordView`: for a logged-in user the
-/// Redis marker `post_view:<post>:<user>` (JSON `true`, 24h) short-circuits
-/// repeat views with no DB access; it is set once a view is found or stored.
-pub async fn record_view(
-    db: &DatabaseConnection,
-    post_id: Uuid,
-    user_id: Option<Uuid>,
-    ip_address: Option<String>,
-    user_agent: Option<String>,
-) -> Result<(), PostViewError> {
-    let post_key = post_id.to_string();
-    let user_key = user_id.map(|id| id.to_string());
-    let marker = user_key
-        .as_deref()
-        .map(|user| ["post_view", post_key.as_str(), user]);
-    if let Some(marker) = &marker
-        && crate::infra::cache::read_json::<bool>(marker).await == Some(true)
-    {
-        return Ok(());
-    }
-
-    ensure_post_viewable(db, post_id).await?;
-
-    if let Some(user_id) = user_id
-        && has_user_viewed(db, post_id, user_id).await?
-    {
-        if let Some(marker) = &marker {
-            crate::infra::cache::write_json(marker, &true, VIEWED_MARKER_TTL).await;
-        }
-        return Ok(());
-    }
-
-    let now = Utc::now();
-    post_views::ActiveModel {
-        id: Set(Uuid::now_v7()),
-        post_id: Set(post_id),
-        user_id: Set(user_id),
-        ip_address: Set(ip_address.filter(|value| !value.trim().is_empty())),
-        user_agent: Set(user_agent.filter(|value| !value.trim().is_empty())),
-        created_at: Set(Some(now.into())),
-        updated_at: Set(Some(now.into())),
-        deleted_at: Set(None),
-    }
-    .insert(db)
-    .await?;
-
-    if let Some(marker) = &marker {
-        crate::infra::cache::write_json(marker, &true, VIEWED_MARKER_TTL).await;
-    }
-    Ok(())
-}
-
 /// Lists the raw view records of a post. Mirrors echobackend
 /// `GetViewsByPostID`: only the post author or a super admin (`is_admin`,
 /// DB-verified by the caller) may see who viewed it; `limit` is clamped to
@@ -208,7 +157,12 @@ pub async fn get_view_stats(
         SELECT
             COUNT(*)::bigint AS total_views,
             COUNT(user_id)::bigint AS authenticated_views,
-            COUNT(DISTINCT user_id)::bigint AS unique_views
+            -- one viewer per user, or per anonymous IP + User-Agent
+            -- (the identity `record::Viewer` deduplicates on)
+            COUNT(DISTINCT COALESCE(
+                user_id::text,
+                'anon:' || COALESCE(ip_address, '') || '|' || COALESCE(user_agent, '')
+            ))::bigint AS unique_views
         FROM post_views
         WHERE post_id = $1 AND deleted_at IS NULL
         "#,

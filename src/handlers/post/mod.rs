@@ -78,6 +78,10 @@ pub fn routes() -> Router<AppState> {
     // first), so a 401 never consumes the budget.
     let create_post_limiter =
         RateLimiter::new(10, Duration::from_secs(3600), trust_proxy).shared("posts:create");
+    // Views are open to anonymous visitors, so cap how many a single client
+    // can send (dedup already makes repeats no-ops; this limits DB lookups).
+    let view_limiter =
+        RateLimiter::new(60, Duration::from_secs(60), trust_proxy).shared("posts:view");
     Router::new()
         .route("/api/posts", get(crud::get_posts))
         .route(
@@ -147,7 +151,13 @@ pub fn routes() -> Router<AppState> {
             "/api/posts/{id}/moderation",
             post(moderation::moderate_post).get(moderation::list_moderation_actions),
         )
-        .route("/api/posts/{id}/view", post(engagement::record_view))
+        .route(
+            "/api/posts/{id}/view",
+            post(engagement::record_view).route_layer(middleware::from_fn_with_state(
+                view_limiter,
+                rate_limit::rate_limit,
+            )),
+        )
         .route("/api/posts/{id}/views", get(engagement::get_post_views))
         .route(
             "/api/posts/{id}/view-stats",
