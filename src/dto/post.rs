@@ -143,6 +143,10 @@ pub struct PostPaginationQuery {
     /// `GET /api/posts/me` only: Go `strconv.ParseBool`, ignored when invalid.
     #[garde(skip)]
     pub published: Option<String>,
+    /// `GET /api/posts/me` only: Go `strconv.ParseBool`, ignored when invalid.
+    /// `true` keeps posts a moderator hid, `false` drops them.
+    #[garde(skip)]
+    pub hidden: Option<String>,
     #[garde(skip)]
     pub sort_by: Option<String>,
     #[serde(rename = "orderBy")]
@@ -389,6 +393,7 @@ mod tests {
             limit: None,
             search: None,
             published: None,
+            hidden: None,
             sort_by: None,
             order_by: None,
             sort_order: None,
@@ -409,6 +414,7 @@ mod tests {
             limit: Some("50".into()),
             search: Some("rust".into()),
             published: None,
+            hidden: None,
             sort_by: None,
             order_by: Some("title".into()),
             sort_order: None,
@@ -432,6 +438,7 @@ mod tests {
             limit: Some("500".into()),
             search: None,
             published: None,
+            hidden: None,
             sort_by: None,
             order_by: None,
             sort_order: None,
@@ -444,6 +451,7 @@ mod tests {
             limit: Some("abc".into()),
             search: None,
             published: None,
+            hidden: None,
             sort_by: None,
             order_by: None,
             sort_order: None,
@@ -457,6 +465,7 @@ mod tests {
             limit: None,
             search: None,
             published: None,
+            hidden: None,
             sort_by: Some("view_count".into()),
             order_by: Some("title".into()),
             sort_order: Some("bogus".into()),

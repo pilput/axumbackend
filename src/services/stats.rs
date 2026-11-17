@@ -133,6 +133,12 @@ pub async fn user_stats(
     )
     .await?;
 
+    let admin_users = users::Entity::find()
+        .filter(users::Column::DeletedAt.is_null())
+        .filter(users::Column::IsSuperAdmin.eq(true))
+        .count(db)
+        .await? as i64;
+
     let rows = ContributorRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
         "SELECT users.id, users.username, users.first_name, users.last_name, COUNT(posts.id)::bigint AS post_count, COALESCE(SUM(posts.view_count), 0)::bigint AS total_views, COALESCE(SUM(posts.like_count), 0)::bigint AS total_likes FROM users LEFT JOIN posts ON users.id = posts.created_by WHERE users.deleted_at IS NULL GROUP BY users.id, users.username, users.first_name, users.last_name ORDER BY COUNT(posts.id) DESC LIMIT $1",
@@ -160,6 +166,7 @@ pub async fn user_stats(
         active_users,
         new_users_today,
         active_users_this_week,
+        admin_users,
         top_contributors,
         growth_trend: user_growth_trend(db, range).await?,
     })
@@ -424,10 +431,11 @@ pub async fn tag_stats(db: &DatabaseConnection, limit: i64) -> Result<Vec<TagPer
         post_count: i64,
         total_views: i64,
         total_likes: i64,
+        last_used_at: Option<String>,
     }
     let rows = TagRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT tags.id, tags.name, COUNT(posts_to_tags.post_id)::bigint AS post_count, COALESCE(SUM(posts.view_count), 0)::bigint AS total_views, COALESCE(SUM(posts.like_count), 0)::bigint AS total_likes FROM tags INNER JOIN posts_to_tags ON tags.id = posts_to_tags.tag_id INNER JOIN posts ON posts_to_tags.post_id = posts.id WHERE posts.published = true GROUP BY tags.id, tags.name ORDER BY COUNT(posts_to_tags.post_id) DESC LIMIT $1",
+        "SELECT tags.id, tags.name, COUNT(posts_to_tags.post_id)::bigint AS post_count, COALESCE(SUM(posts.view_count), 0)::bigint AS total_views, COALESCE(SUM(posts.like_count), 0)::bigint AS total_likes, to_char(MAX(COALESCE(posts.published_at, posts.created_at)) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS last_used_at FROM tags INNER JOIN posts_to_tags ON tags.id = posts_to_tags.tag_id INNER JOIN posts ON posts_to_tags.post_id = posts.id WHERE posts.published = true GROUP BY tags.id, tags.name ORDER BY COUNT(posts_to_tags.post_id) DESC LIMIT $1",
         vec![limit.into()],
     ))
     .all(db)
@@ -440,6 +448,7 @@ pub async fn tag_stats(db: &DatabaseConnection, limit: i64) -> Result<Vec<TagPer
             post_count: row.post_count,
             total_views: row.total_views,
             total_likes: row.total_likes,
+            last_used_at: row.last_used_at,
         })
         .collect())
 }

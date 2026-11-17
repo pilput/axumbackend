@@ -52,6 +52,8 @@ pub struct TagPerformance {
     pub post_count: i64,
     pub total_views: i64,
     pub total_likes: i64,
+    /// Publish time of the newest published post with this tag (RFC 3339, UTC).
+    pub last_used_at: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -75,6 +77,8 @@ pub struct UserStatsResponse {
     pub active_users: i64,
     pub new_users_today: i64,
     pub active_users_this_week: i64,
+    /// Non-deleted super admins.
+    pub admin_users: i64,
     pub top_contributors: Vec<TopContributor>,
     pub growth_trend: Vec<UserGrowthData>,
 }

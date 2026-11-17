@@ -7,7 +7,7 @@ use crate::http::extract::{VJsonOrDefault, VPath, VQuery, bind_message};
 use crate::http::response::ApiResponse;
 use crate::infra::database::DbPool;
 use crate::models::post_report::{
-    ModerationActionResponse, PostReportGroup, SinglePostReportResponse,
+    ModerationActionResponse, PostReportGroup, ReportStatsResponse, SinglePostReportResponse,
 };
 use crate::services;
 use crate::services::post_report::PostReportError;
@@ -83,6 +83,19 @@ pub async fn list_reported_posts(
         total as i64,
         limit as i64,
         offset as i64,
+    )))
+}
+
+pub async fn get_report_stats(
+    State(pool): State<DbPool>,
+    _admin: AdminUser,
+) -> Result<Json<ApiResponse<ReportStatsResponse>>, AppError> {
+    let stats = services::post_report::report_stats(&pool)
+        .await
+        .map_err(|e| AppError::internal("Failed to fetch report stats", e))?;
+    Ok(Json(ApiResponse::success_with_message(
+        "Report stats fetched successfully",
+        stats,
     )))
 }
 

@@ -95,6 +95,10 @@ pub fn routes() -> Router<AppState> {
             get(stats::get_post_engagement),
         )
         .route("/api/posts/reports", get(moderation::list_reported_posts))
+        .route(
+            "/api/posts/reports/stats",
+            get(moderation::get_report_stats),
+        )
         .route("/api/posts/random", get(crud::get_random_posts))
         .route("/api/posts/trending", get(crud::get_trending_posts))
         .route("/api/posts/me", get(crud::get_my_posts))

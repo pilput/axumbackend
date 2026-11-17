@@ -253,6 +253,7 @@ pub async fn get_posts_by_created_by(
     limit: i64,
     search: Option<&str>,
     published: Option<bool>,
+    hidden: Option<bool>,
 ) -> Result<(Vec<Post>, i64), DbErr> {
     let mut query = active_posts().filter(posts::Column::CreatedBy.eq(user_id));
     if let Some(search) = search.filter(|s| !s.is_empty()) {
@@ -261,6 +262,11 @@ pub async fn get_posts_by_created_by(
     }
     if let Some(published) = published {
         query = query.filter(posts::Column::Published.eq(published));
+    }
+    match hidden {
+        Some(true) => query = query.filter(posts::Column::HiddenAt.is_not_null()),
+        Some(false) => query = query.filter(posts::Column::HiddenAt.is_null()),
+        None => {}
     }
 
     let (post_models, total) = paginate(

@@ -1,6 +1,7 @@
 use crate::entities::{post_moderation_actions, post_reports, posts, users};
 use crate::models::post_report::{
-    ModerationActionResponse, PostReportGroup, SinglePostReportResponse, UserBrief,
+    ModerationActionResponse, PostReportGroup, ReportStatsResponse, SinglePostReportResponse,
+    UserBrief,
 };
 use crate::services::pagination::paginate;
 use sea_orm::{
@@ -191,6 +192,47 @@ pub async fn list_reported_posts(
         .and_then(|row| row.try_get("", "value").ok())
         .unwrap_or(total as i64);
     Ok((groups, distinct_total as u64))
+}
+
+pub async fn report_stats(db: &DatabaseConnection) -> Result<ReportStatsResponse, DbErr> {
+    #[derive(FromQueryResult)]
+    struct Row {
+        pending: i64,
+        resolved: i64,
+        dismissed: i64,
+        hidden_posts: i64,
+        avg_response_hours: Option<f64>,
+    }
+    let row = Row::find_by_statement(Statement::from_string(
+        DbBackend::Postgres,
+        "SELECT \
+           (SELECT COUNT(DISTINCT post_id) FROM post_reports WHERE status = 'pending')::bigint AS pending, \
+           (SELECT COUNT(DISTINCT post_id) FROM post_reports WHERE status = 'resolved')::bigint AS resolved, \
+           (SELECT COUNT(DISTINCT post_id) FROM post_reports WHERE status = 'dismissed')::bigint AS dismissed, \
+           (SELECT COUNT(*) FROM posts JOIN users ON users.id = posts.created_by \
+              WHERE posts.hidden_at IS NOT NULL AND users.deleted_at IS NULL)::bigint AS hidden_posts, \
+           (SELECT (AVG(EXTRACT(EPOCH FROM (a.created_at - r.created_at))) / 3600)::float8 \
+              FROM post_reports r JOIN post_moderation_actions a ON a.id = r.action_id \
+              WHERE a.created_at >= NOW() - INTERVAL '30 days') AS avg_response_hours",
+    ))
+    .one(db)
+    .await?;
+    Ok(row.map_or(
+        ReportStatsResponse {
+            pending: 0,
+            resolved: 0,
+            dismissed: 0,
+            hidden_posts: 0,
+            avg_response_hours: None,
+        },
+        |r| ReportStatsResponse {
+            pending: r.pending,
+            resolved: r.resolved,
+            dismissed: r.dismissed,
+            hidden_posts: r.hidden_posts,
+            avg_response_hours: r.avg_response_hours,
+        },
+    ))
 }
 
 pub async fn list_post_reports(

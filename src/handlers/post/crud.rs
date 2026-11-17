@@ -329,6 +329,7 @@ pub async fn get_my_posts(
 ) -> Result<Json<ApiResponse<Vec<Post>>>, AppError> {
     let (limit, offset) = query.resolve(10);
     let published = parse_go_bool(query.published.as_deref());
+    let hidden = parse_go_bool(query.hidden.as_deref());
     let (posts, total) = services::post::get_posts_by_created_by(
         &pool,
         auth_user.id,
@@ -336,6 +337,7 @@ pub async fn get_my_posts(
         limit,
         query.search.as_deref(),
         published,
+        hidden,
     )
     .await
     .map_err(|e| AppError::from(e).context("Failed to get posts"))?;
