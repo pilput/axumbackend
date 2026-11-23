@@ -67,6 +67,49 @@ pub struct ImageUploadSpec {
     pub key_prefix: &'static str,
     /// Prefix of log lines ("avatar", "post image").
     pub log_name: &'static str,
+    /// Longest side, in pixels, of the stored image; larger uploads are
+    /// downscaled and re-encoded as WebP (see [`crate::domain::image`]).
+    pub max_dimension: u32,
+}
+
+/// At most this many images are decoded/re-encoded at once: each one can
+/// take a few hundred ms of CPU and tens of MB of RAM.
+static OPTIMIZE_PERMITS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+/// Runs [`crate::domain::image::optimize`] off the async runtime and returns
+/// `(data, content_type, ext)` to store; the original on any failure.
+async fn optimize_for_storage(
+    data: axum::body::Bytes,
+    content_type: &'static str,
+    ext: &'static str,
+    spec: &ImageUploadSpec,
+) -> (Vec<u8>, &'static str, &'static str) {
+    if content_type == "image/gif" {
+        return (data.to_vec(), content_type, ext);
+    }
+    let _permit = OPTIMIZE_PERMITS.acquire().await;
+    let max_dimension = spec.max_dimension;
+    let input = data.clone();
+    let optimized = tokio::task::spawn_blocking(move || {
+        crate::domain::image::optimize(&input, content_type, max_dimension)
+    })
+    .await;
+    match optimized {
+        Ok(Some(out)) => {
+            tracing::debug!(
+                original = data.len(),
+                optimized = out.data.len(),
+                "{}: optimized",
+                spec.log_name
+            );
+            (out.data, out.content_type, out.ext)
+        }
+        Ok(None) => (data.to_vec(), content_type, ext),
+        Err(err) => {
+            tracing::error!(error = %err, "{}: optimize task failed", spec.log_name);
+            (data.to_vec(), content_type, ext)
+        }
+    }
 }
 
 impl ImageUploadSpec {
@@ -151,9 +194,11 @@ pub async fn store_image(image: SniffedImage, spec: &ImageUploadSpec) -> Result<
         ));
     };
 
-    let key = crate::infra::storage::random_object_key(spec.key_prefix, image.ext);
+    let (data, content_type, ext) =
+        optimize_for_storage(image.data, image.content_type, image.ext, spec).await;
+    let key = crate::infra::storage::random_object_key(spec.key_prefix, ext);
     storage
-        .save(&key, image.data.to_vec(), image.content_type)
+        .save(&key, data, content_type)
         .await
         .map_err(|err| {
             tracing::error!(error = %err, key = %key, "{}: upload failed", spec.log_name);
@@ -245,9 +290,10 @@ pub async fn upload_post_image(
         ));
     };
 
+    let (data, content_type, ext) = optimize_for_storage(data, content_type, ext, spec).await;
     let key = crate::infra::storage::random_object_key(spec.key_prefix, ext);
     storage
-        .save(&key, data.to_vec(), content_type)
+        .save(&key, data, content_type)
         .await
         .map_err(|err| {
             tracing::error!(error = %err, key = %key, "{}: upload failed", spec.log_name);
@@ -287,6 +333,7 @@ mod tests {
         label: "Image",
         key_prefix: "posts/images",
         log_name: "test image",
+        max_dimension: 1600,
     };
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00";

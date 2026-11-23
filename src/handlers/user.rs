@@ -350,6 +350,8 @@ const AVATAR_UPLOAD: crate::http::upload::ImageUploadSpec = crate::http::upload:
     label: "Avatar",
     key_prefix: AVATAR_PREFIX,
     log_name: "avatar",
+    // Avatars render small; 512px covers 2x/3x displays.
+    max_dimension: 512,
 };
 
 pub async fn upload_avatar(

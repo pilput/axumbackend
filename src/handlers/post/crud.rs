@@ -221,7 +221,8 @@ pub async fn get_posts_for_you(
     )))
 }
 
-/// Post image upload settings: `image` field, 1 MB cap, JPEG/PNG/GIF/WEBP.
+/// Post image upload settings: `image` field, 1 MB cap, JPEG/PNG/GIF/WEBP,
+/// stored as WebP at most 1600px on the longest side (GIFs untouched).
 const POST_IMAGE_UPLOAD: crate::http::upload::ImageUploadSpec =
     crate::http::upload::ImageUploadSpec {
         field: "image",
@@ -229,6 +230,7 @@ const POST_IMAGE_UPLOAD: crate::http::upload::ImageUploadSpec =
         label: "Image",
         key_prefix: POST_IMAGE_PREFIX,
         log_name: "post image",
+        max_dimension: 1600,
     };
 
 /// echobackend `UploadImagePosts` (route `BodyLimit(1MB)`): see
