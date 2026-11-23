@@ -42,7 +42,7 @@ pub(super) fn create_access_token(user: &users::Model) -> Result<String, AuthErr
     Ok(encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret(jwt.secret.as_bytes()),
+        &EncodingKey::from_secret(jwt.secret.as_bytes())?,
     )?)
 }
 

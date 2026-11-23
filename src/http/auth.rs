@@ -26,13 +26,11 @@ static ACCESS_TOKEN_VALIDATION: LazyLock<Validation> = LazyLock::new(|| {
 
 /// Verifies an access token's signature and expiry.
 pub fn decode_access_token(token: &str, secret: &[u8]) -> Option<Claims> {
-    decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(secret),
-        &ACCESS_TOKEN_VALIDATION,
-    )
-    .ok()
-    .map(|data| data.claims)
+    // jsonwebtoken 12: `from_secret` rejects an empty HMAC key.
+    let key = DecodingKey::from_secret(secret).ok()?;
+    decode::<Claims>(token, &key, &ACCESS_TOKEN_VALIDATION)
+        .ok()
+        .map(|data| data.claims)
 }
 
 /// Decoded access-token claims. Tokens are minted with only `user_id`, `iat`
@@ -254,7 +252,7 @@ mod tests {
         encode(
             &Header::new(Algorithm::HS256),
             &claims,
-            &EncodingKey::from_secret(SECRET),
+            &EncodingKey::from_secret(SECRET).unwrap(),
         )
         .unwrap()
     }
