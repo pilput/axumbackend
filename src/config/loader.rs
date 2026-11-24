@@ -176,7 +176,10 @@ impl RateLimitConfig {
 impl HttpConfig {
     pub fn from_env() -> Self {
         Self {
-            trust_proxy: parse_bool_alias(&["HTTP_TRUST_PROXY", "TRUST_PROXY"], false),
+            // Default on: only hops from loopback/private/link-local/CGNAT
+            // peers are trusted, so a directly exposed server still ignores
+            // a client-set X-Forwarded-For (see `http::client_ip`).
+            trust_proxy: parse_bool_alias(&["HTTP_TRUST_PROXY", "TRUST_PROXY"], true),
             allow_origins: parse_origins(&env_string("HTTP_ALLOW_ORIGINS", "*")),
             request_timeout: non_negative_secs(parse_env_alias(
                 &["HTTP_REQUEST_TIMEOUT_SECS", "REQUEST_TIMEOUT_SECS"],
